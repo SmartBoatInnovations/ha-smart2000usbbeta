@@ -730,6 +730,7 @@ class SerialSensor(SensorEntity):
         checksum = sum(payload) & 0xFF
         frame = b'\xAA\x55' + payload + bytes([checksum])
 
+        _LOGGER.info("Waveshare config frame: %s", frame.hex())
         writer.write(frame)
         await writer.drain()
         _LOGGER.info("Waveshare configured: variable, 250k, extended, normal, auto-retry on, no filter")
