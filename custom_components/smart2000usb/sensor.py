@@ -19,7 +19,7 @@ import logging
 import os
 from datetime import  datetime, timedelta
 import pprint
-import serial_asyncio
+import serial_asyncio_fast as serial_asyncio
 from serial import SerialException
 import binascii
 
@@ -718,91 +718,46 @@ class SerialSensor(SensorEntity):
 
 
     async def read_loop(self, reader):
-        """Continuously read data from the serial port with helpful debug."""
+        """Continuously read data from the serial port."""
+
         buffer = bytearray()
         try:
             while True:
-                # Larger read reduces chunking at 2,000,000 bps
-                data = await reader.read(256)
+                # Read chunks of data from the serial port
+                data = await reader.read(100)
                 if not data:
+                    # If no data and buffer is not empty, process remaining data
                     if buffer:
-                        _LOGGER.debug("EOF: %d residual bytes: %s",
-                                      len(buffer), binascii.hexlify(buffer).decode())
+                        process_packet(self.hass, self.name, buffer)
+                        buffer = bytearray()
                     break
-    
                 buffer.extend(data)
-                _LOGGER.debug("rx: chunk=%d buf=%d head=%s",
-                              len(data), len(buffer),
-                              binascii.hexlify(buffer[:16]).decode())
     
+                # Continue processing as long as there's data in the buffer
                 while True:
-                    # Find start-of-frame (0xAA)
-                    start = buffer.find(b'\xAA')
-                    if start == -1:
-                        if buffer:
-                            _LOGGER.debug("skip: cleared %d bytes (no 0xAA)", len(buffer))
-                            buffer.clear()
+                    # Find the packet start and end delimiters
+                    start = buffer.find(b'\xaa')
+                    end = buffer.find(b'\x55', start)
+                    
+                    if start == -1 or end == -1:
+                        # If start or end not found, wait for more data
                         break
     
-                    if start > 0:
-                        _LOGGER.debug("skip: %d stray bytes before 0xAA", start)
-                        buffer = buffer[start:]
+                    # Extract the complete packet, including the end delimiter
+                    packet = buffer[start:end+1]
     
-                    # Need at least AA + TYPE to compute expected size
-                    if len(buffer) < 2:
-                        _LOGGER.debug("wait: need type byte (have=%d)", len(buffer))
-                        break
-    
-                    type_byte = buffer[1]
-                    data_length = type_byte & 0x0F  # low nibble = 0..8
-                    if data_length > 8:
-                        _LOGGER.debug("drop: impossible data_len=%d (type=0x%02x); resync",
-                                      data_length, type_byte)
-                        buffer = buffer[1:]
-                        continue
-    
-                    # AA + TYPE + ID(4) + DATA(N) + 0x55
-                    expected_length = 1 + 1 + 4 + data_length + 1
-                    if len(buffer) < expected_length:
-                        _LOGGER.debug("wait: have=%d need=%d type=0x%02x len=%d",
-                                      len(buffer), expected_length, type_byte, data_length)
-                        break
-    
-                    # Check trailer at expected position
-                    endpos = expected_length - 1
-                    if buffer[endpos] != 0x55:
-                        win_start = max(0, endpos - 8)
-                        win_end = min(len(buffer), endpos + 8)
-                        _LOGGER.debug("bad-trailer: got=0x%02x exp=0x55 pos=%d win=%s",
-                                      buffer[endpos], endpos,
-                                      binascii.hexlify(buffer[win_start:win_end]).decode())
-                        # Resync to next start to avoid byte-by-byte churn
-                        nxt = buffer[1:].find(b'\xAA')
-                        buffer = buffer[1 + nxt:] if nxt >= 0 else bytearray()
-                        continue
-    
-                    # Extract full frame
-                    packet = bytes(buffer[:expected_length])
-                    _LOGGER.debug("ok: len=%d type=0x%02x data_len=%d pkt=%s",
-                                  expected_length, type_byte, data_length,
-                                  binascii.hexlify(packet).decode())
-    
-                    if expected_length >= 7:
+                    # Process the packet
+                    if len(packet) > 2:  # Make sure it's not just the header and end code
                         process_packet(self.hass, self.name, packet)
-                    else:
-                        _LOGGER.warning("short: %s", binascii.hexlify(packet).decode())
     
-                    # Advance buffer
-                    buffer = buffer[expected_length:]
+                    # Remove the processed packet from the buffer
+                    buffer = buffer[end+1:]
     
-        except asyncio.CancelledError:
-            _LOGGER.debug("Read loop cancelled")
-            raise
         except Exception as exc:
             _LOGGER.exception("Error while reading from serial port: %s", exc)
         finally:
             _LOGGER.debug("Finished reading data")
-    
+
 
     async def serial_read(self):
         
