@@ -820,7 +820,7 @@ class SerialSensor(SensorEntity):
         """Read the data from the port."""
         while True:
             try:
-                # Capture both reader AND writer so we can send config
+                # First open: send config, then close cleanly
                 reader, writer = await serial_asyncio.open_serial_connection(
                     url=self._port,
                     baudrate=self._baudrate,
@@ -836,12 +836,31 @@ class SerialSensor(SensorEntity):
                 
                 try:
                     await self.configure_waveshare_variable_mode(writer)
-                    await self.send_waveshare_test_frame(writer)
+                    _LOGGER.debug("Closing serial port after config to test persistence")
+                    writer.close()
+                    await asyncio.sleep(0.2)
                 except Exception as cfg_exc:
-                    _LOGGER.warning("Waveshare config/test failed (continuing anyway): %s", cfg_exc)
-                
-                await self.read_loop(reader)                
-                
+                    _LOGGER.warning("Waveshare config/close failed (continuing anyway): %s", cfg_exc)
+                    try:
+                        writer.close()
+                    except Exception:
+                        pass
+    
+                # Re-open for normal reading
+                reader, writer = await serial_asyncio.open_serial_connection(
+                    url=self._port,
+                    baudrate=self._baudrate,
+                    bytesize=self._bytesize,
+                    parity=self._parity,
+                    stopbits=self._stopbits,
+                    xonxoff=self._xonxoff,
+                    rtscts=self._rtscts,
+                    dsrdtr=self._dsrdtr,
+                )
+    
+                _LOGGER.debug("Serial connection re-established for reading")
+                await self.read_loop(reader)
+    
             except SerialException as exc:
                 _LOGGER.exception("Serial connection failed: %s. Retrying in %d seconds...", exc, self._retry_delay)
                 await self._handle_error()
@@ -851,7 +870,6 @@ class SerialSensor(SensorEntity):
             except Exception as exc:
                 _LOGGER.exception("Unexpected error: %s. Retrying in %d seconds...", exc, self._retry_delay)
                 await self._handle_error()
-
 
 
 
