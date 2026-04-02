@@ -716,6 +716,31 @@ class SerialSensor(SensorEntity):
         """Handle when an entity is about to be added to Home Assistant."""
         self._serial_loop_task = self.hass.loop.create_task(self.serial_read())
 
+    async def send_waveshare_test_frame(self, writer):
+        """Send a test CAN frame in Waveshare variable protocol."""
+        frame = bytes([
+            0xAA,  # Packet header
+            0xE8,  # Extended data frame, DLC=8
+            0x67,  # Frame ID byte 1
+            0x45,  # Frame ID byte 2
+            0x23,  # Frame ID byte 3
+            0x01,  # Frame ID byte 4
+            0x11,  # Data byte 1
+            0x22,  # Data byte 2
+            0x33,  # Data byte 3
+            0x44,  # Data byte 4
+            0x55,  # Data byte 5
+            0x66,  # Data byte 6
+            0x77,  # Data byte 7
+            0x88,  # Data byte 8
+            0x55,  # End byte
+        ])
+    
+        _LOGGER.info("Waveshare test CAN frame: %s", frame.hex())
+        writer.write(frame)
+        await writer.drain()
+        _LOGGER.info("Waveshare test CAN frame sent")
+    
     async def configure_waveshare_variable_mode(self, writer):
         """Configure Waveshare adapter for variable length mode (250k, extended)."""
         config_packet = [
@@ -808,15 +833,14 @@ class SerialSensor(SensorEntity):
                 )
                 
                 _LOGGER.debug("Serial connection established")
-
-                # Send the one-shot Waveshare config frame
+                
                 try:
                     await self.configure_waveshare_variable_mode(writer)
+                    await self.send_waveshare_test_frame(writer)
                 except Exception as cfg_exc:
-                    _LOGGER.warning("Waveshare config failed (continuing anyway): %s", cfg_exc)
-
-                await self.read_loop(reader)
+                    _LOGGER.warning("Waveshare config/test failed (continuing anyway): %s", cfg_exc)
                 
+                await self.read_loop(reader)                
                 
             except SerialException as exc:
                 _LOGGER.exception("Serial connection failed: %s. Retrying in %d seconds...", exc, self._retry_delay)
