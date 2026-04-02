@@ -723,11 +723,20 @@ class SerialSensor(SensorEntity):
             0x12,  # Type: variable protocol
             0x05,  # CAN baud: 250 kbps
             0x02,  # Frame type: extended
-            0x00, 0x00, 0x00, 0x00,  # Filter ID1-4
-            0x00, 0x00, 0x00, 0x00,  # Mask/Block ID1-4
+            0x00,  # Filter ID1
+            0x00,  # Filter ID2
+            0x00,  # Filter ID3
+            0x00,  # Filter ID4
+            0x00,  # Mask/Block ID1
+            0x00,  # Mask/Block ID2
+            0x00,  # Mask/Block ID3
+            0x00,  # Mask/Block ID4
             0x00,  # CAN mode: normal
             0x00,  # Auto retransmit: enabled
-            0x00, 0x00, 0x00, 0x00,  # Spare
+            0x00,  # Spare
+            0x00,  # Spare
+            0x00,  # Spare
+            0x00,  # Spare
         ]
     
         checksum = sum(config_packet[2:]) & 0xFF
@@ -737,8 +746,8 @@ class SerialSensor(SensorEntity):
         _LOGGER.info("Waveshare config frame: %s", frame.hex())
         writer.write(frame)
         await writer.drain()
-        _LOGGER.info("Waveshare configured: variable, 250k, extended, normal, auto-retry on, no filter")
-    
+        _LOGGER.info("Waveshare configured: variable, 250k, extended, normal, auto-retry on, no filter")    
+        
     async def read_loop(self, reader):
         """Continuously read data from the serial port."""
 
