@@ -717,24 +717,28 @@ class SerialSensor(SensorEntity):
         self._serial_loop_task = self.hass.loop.create_task(self.serial_read())
 
     async def configure_waveshare_variable_mode(self, writer):
-        """Configure Waveshare adapter for variable length mode (variable, 250k, extended)."""
-        # Variable-protocol settings per Waveshare serial control
-        TYPE_VARIABLE   = 0x12  # variable-protocol settings
-        SPEED_250K      = 0x05
-        FRAME_EXTENDED  = 0x02  # 0x01 = standard
-        MODE_NORMAL     = 0x00  # 0x03 = silent
-        AUTORETX_ON     = 0x00  # 0x01 = disable auto-retry
-        FILTER_ALL      = 0x00  # 0x01 = upload only filtered IDs
-
-        payload = bytes([TYPE_VARIABLE, SPEED_250K, FRAME_EXTENDED, MODE_NORMAL, AUTORETX_ON, FILTER_ALL])
-        checksum = sum(payload) & 0xFF
-        frame = b'\xAA\x55' + payload + bytes([checksum])
-
+        """Configure Waveshare adapter for variable length mode (250k, extended)."""
+        config_packet = [
+            0xAA, 0x55,
+            0x12,  # Type: variable protocol
+            0x05,  # CAN baud: 250 kbps
+            0x02,  # Frame type: extended
+            0x00, 0x00, 0x00, 0x00,  # Filter ID1-4
+            0x00, 0x00, 0x00, 0x00,  # Mask/Block ID1-4
+            0x00,  # CAN mode: normal
+            0x00,  # Auto retransmit: enabled
+            0x00, 0x00, 0x00, 0x00,  # Spare
+        ]
+    
+        checksum = sum(config_packet[2:]) & 0xFF
+        config_packet.append(checksum)
+    
+        frame = bytes(config_packet)
         _LOGGER.info("Waveshare config frame: %s", frame.hex())
         writer.write(frame)
         await writer.drain()
         _LOGGER.info("Waveshare configured: variable, 250k, extended, normal, auto-retry on, no filter")
-
+    
     async def read_loop(self, reader):
         """Continuously read data from the serial port."""
 
