@@ -716,31 +716,6 @@ class SerialSensor(SensorEntity):
         """Handle when an entity is about to be added to Home Assistant."""
         self._serial_loop_task = self.hass.loop.create_task(self.serial_read())
 
-    async def send_waveshare_test_frame(self, writer):
-        """Send a test CAN frame in Waveshare variable protocol."""
-        frame = bytes([
-            0xAA,  # Packet header
-            0xE8,  # Extended data frame, DLC=8
-            0x67,  # Frame ID byte 1
-            0x45,  # Frame ID byte 2
-            0x23,  # Frame ID byte 3
-            0x01,  # Frame ID byte 4
-            0x11,  # Data byte 1
-            0x22,  # Data byte 2
-            0x33,  # Data byte 3
-            0x44,  # Data byte 4
-            0x55,  # Data byte 5
-            0x66,  # Data byte 6
-            0x77,  # Data byte 7
-            0x88,  # Data byte 8
-            0x55,  # End byte
-        ])
-    
-        _LOGGER.info("Waveshare test CAN frame: %s", frame.hex())
-        writer.write(frame)
-        await writer.drain()
-        _LOGGER.info("Waveshare test CAN frame sent")
-    
     async def configure_waveshare_variable_mode(self, writer):
         """Configure Waveshare adapter for variable length mode (250k, extended)."""
         config_packet = [
@@ -820,7 +795,7 @@ class SerialSensor(SensorEntity):
         """Read the data from the port."""
         while True:
             try:
-                # First open: send config, then close cleanly
+                # Capture both reader AND writer so we can send config
                 reader, writer = await serial_asyncio.open_serial_connection(
                     url=self._port,
                     baudrate=self._baudrate,
@@ -836,29 +811,9 @@ class SerialSensor(SensorEntity):
                 
                 try:
                     await self.configure_waveshare_variable_mode(writer)
-                    _LOGGER.debug("Closing serial port after config to test persistence")
-                    writer.close()
-                    await asyncio.sleep(0.2)
                 except Exception as cfg_exc:
-                    _LOGGER.warning("Waveshare config/close failed (continuing anyway): %s", cfg_exc)
-                    try:
-                        writer.close()
-                    except Exception:
-                        pass
+                    _LOGGER.warning("Waveshare config failed (continuing anyway): %s", cfg_exc)
     
-                # Re-open for normal reading
-                reader, writer = await serial_asyncio.open_serial_connection(
-                    url=self._port,
-                    baudrate=self._baudrate,
-                    bytesize=self._bytesize,
-                    parity=self._parity,
-                    stopbits=self._stopbits,
-                    xonxoff=self._xonxoff,
-                    rtscts=self._rtscts,
-                    dsrdtr=self._dsrdtr,
-                )
-    
-                _LOGGER.debug("Serial connection re-established for reading")
                 await self.read_loop(reader)
     
             except SerialException as exc:
